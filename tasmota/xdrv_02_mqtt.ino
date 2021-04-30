@@ -306,6 +306,14 @@ bool MqttPublishLib(const char* topic, bool retained) {
     }
   }
 
+#ifdef USE_TASMESH
+ if(MESH.role > ROLE_BROKER){
+   MESHrouteMQTTtoMESH(topic, TasmotaGlobal.mqtt_data, retained); //if we are a node, send this via ESP-Now
+   yield();
+   return true;
+ }
+#endif //USE_TASMESH
+
   bool result;
 #ifdef USE_MQTT_AZURE_IOT
   String sourceTopicString = urlEncodeBase64(String(topic));
@@ -376,6 +384,14 @@ void MqttDataHandler(char* mqtt_topic, uint8_t* mqtt_data, unsigned int data_len
   mqtt_data[data_len] = 0;
   char data[data_len +1];
   memcpy(data, mqtt_data, sizeof(data));
+
+#ifdef USE_TASMESH
+#ifdef ESP32
+  if(MESH.role == ROLE_BROKER){
+    if (MESHinterceptMQTTonBroker(topic, (uint8_t*)data, data_len+1)) return; //check if this is a message for a node
+  }
+#endif //ESP32
+#endif //USE_TASMESH
 
 #ifdef DEBUG_TASMOTA_CORE
   MqttDumpData(topic, data, data_len);  // Use a function to save stack space used by dump_data
