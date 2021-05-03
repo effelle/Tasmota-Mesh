@@ -1,7 +1,7 @@
 /*
   xdrv_56_tasmesh.ino - Mesh support for Tasmota using ESP-Now
 
-  Copyright (C) 2020  Christian Baars and Theo Arends
+  Copyright (C) 2020  Christian Baars, Federico Leoni and and Theo Arends
 
   This program is free software: you can redistribute it and/or modify
   it under the terms of the GNU General Public License as published by
@@ -20,6 +20,7 @@
   Version yyyymmdd  Action    Description
   --------------------------------------------------------------------------------------------
   0.9.0.0 20200927  started - from scratch
+  0.9.4.1 20210503  edit      add some minor tweak for channel management
 
 */
 
@@ -664,7 +665,7 @@ void MESHshow(bool json){
               WSContentSend_PD(PSTR("<ul>%s: %s</ul>"),key.getStr(), key.getValue().getStr());
             }
           }
-          // AddLog_P(LOG_LEVEL_INFO,PSTR("teleJSON: %s"),(char*)MESH.lastTeleMsgs[idx].c_str());
+          AddLog_P(LOG_LEVEL_INFO,PSTR("teleJSON: %s"),(char*)MESH.lastTeleMsgs[idx].c_str());
           // AddLog_P(LOG_LEVEL_INFO,PSTR("stringsize: %u"),MESH.lastTeleMsgs[idx].length());
         }
         else {
@@ -692,16 +693,34 @@ bool MESHCmd(void) {
 
     switch (command_code) {
       case CMND_MESH_BROKER:
-        MESH.channel = WiFi.channel(); // Broker gets the channel from the router, no need to declare it with MESHCHANNEL
+        MESH.channel = WiFi.channel(); // The Broker gets the channel from the router, no need to declare it with MESHCHANNEL (will be mandatory set it when ETH will be implemented)
         MESHstartBroker();
         Response_P(S_JSON_MESH_COMMAND_NVALUE, command, MESH.channel);
-        break;
+        break; 
       case CMND_MESH_NODE:
         if (XdrvMailbox.data_len > 0) {
-          MESHHexStringToBytes(XdrvMailbox.data,MESH.broker);
-          if(XdrvMailbox.index!=0) XdrvMailbox.index = 1; //everything not 0 is a full node
-          MESHstartNode(MESH.channel,XdrvMailbox.index);
-          Response_P(S_JSON_MESH_COMMAND_NVALUE, command, MESH.channel);
+          MESHHexStringToBytes(XdrvMailbox.data, MESH.broker);
+          if(XdrvMailbox.index != 0) XdrvMailbox.index = 1;     // Everything not 0 is a full node
+          // meshnode FA:KE:AD:DR:ES:S1
+          bool broker = false;
+          char EspSsid[11];
+          String mac_address = XdrvMailbox.data;
+          snprintf_P(EspSsid, sizeof(EspSsid), PSTR("ESP_%s"), mac_address.substring(6).c_str());
+          int32_t getWiFiChannel(const char *EspSsid);
+          if (int32_t ch = WiFi.scanNetworks()) {
+            for (uint8_t i = 0; i < ch; i++) {
+              if (!strcmp(EspSsid, WiFi.SSID(i).c_str())) {     
+                MESH.channel = WiFi.channel(i);
+                broker = true;
+                AddLog_P(LOG_LEVEL_INFO, PSTR("MES: Successfully connected to Mesh Broker using MAC: %s as %s on channel %d"), XdrvMailbox.data, EspSsid, MESH.channel);
+                MESHstartNode(MESH.channel, XdrvMailbox.index);
+                Response_P(S_JSON_MESH_COMMAND_NVALUE, command, MESH.channel);
+              } 
+            }
+          }
+          if (!broker) {
+            AddLog_P(LOG_LEVEL_INFO, PSTR("MES: No Mesh Broker found using MAC %s"), XdrvMailbox.data);
+          }          
         }
         break;
       case CMND_MESH_CHANNEL:
